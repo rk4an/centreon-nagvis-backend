@@ -132,7 +132,7 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
                     FROM hosts
                     WHERE enabled = 1';
                 if ($name1Pattern != '') {
-                    $queryGetObject .= ' AND name = "%s"';
+                    $queryGetObject .= ' AND name = %s';
                 }
                 break;
             case 'service':
@@ -140,10 +140,10 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
                     FROM services s, hosts h
                     WHERE h.enabled =1
                         AND s.enabled = 1
-                        AND h.name = "%s"
+                        AND h.name = %s
                         AND h.host_id = s.host_id';
                 if ('' !== $name2Pattern) {
-                    $queryGetObject .= ' AND s.description = "%s"';
+                    $queryGetObject .= ' AND s.description = %s';
                 }
                 break;
             case 'hostgroup':
@@ -151,7 +151,7 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
                     FROM hostgroups
                     WHERE 1 = 1';
                 if ($name1Pattern != '') {
-                    $queryGetObject .= ' AND name = "%s"';
+                    $queryGetObject .= ' AND name = %s';
                 }
                 break;
             case 'servicegroup':
@@ -159,7 +159,7 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
                     FROM servicegroups
                     WHERE 1 = 1';
                 if ($name1Pattern != '') {
-                    $queryGetObject .= ' name = "%s"';
+                    $queryGetObject .= ' name = %s';
                 }
                 break;
             default:
@@ -172,17 +172,19 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
         $queryGetObject .= ' ORDER BY name1, name2';
 
         if ('' !== $name2Pattern) {
-            $queryGetObject = sprintf($queryGetObject, mysql_real_escape_string($name1Pattern, $this->_dbh), mysql_real_escape_string($name2Pattern, $this->_dbh), $this->_instanceId);
+            $queryGetObject = sprintf($queryGetObject, $this->_dbh->quote($name1Pattern), $this->_dbh->quote($name2Pattern), $this->_instanceId);
         }
         if ('' !== $name1Pattern) {
-            $queryGetObject = sprintf($queryGetObject, mysql_real_escape_string($name1Pattern, $this->_dbh), $this->_instanceId);
+            $queryGetObject = sprintf($queryGetObject, $this->_dbh->quote($name1Pattern), $this->_instanceId);
         }
 
-        $res = mysql_query($queryGetObject, $this->_dbh);
-        if (false === $res) {
-            throw new BackendException(l('errorGettingObject', array('BACKENDID' => $this->_backendId, 'ERROR' => mysql_error($this->_dbh))));
+        try {
+            $stmt = $this->_dbh->query($queryGetObject);
+        } catch (PDOException $e) {
+            throw new BackendException(l('errorGettingObject', array('BACKENDID' => $this->_backendId, 'ERROR' => $e->getMessage())));
         }
-        while ($row = mysql_fetch_array($res, MYSQL_ASSOC)) {
+        
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             /* Set cache */
             if (0 != $row['host_id']) {
                 $this->_cacheHostId[$row['name1']] = $row['host_id'];
@@ -193,7 +195,6 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             /* Set table */
             $ret[] = array('name1' => $row['name1'], 'name2' => $row['name2']);
         }
-        mysql_free_result($res);
 
         return $ret;
     }
@@ -240,13 +241,15 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             $queryGetHostState .= ' AND h.instance_id = ' . $this->_instanceId;
         }
         $queryGetHostState = sprintf($queryGetHostState, $this->parseFilter($objects, $filters));
-        $result = mysql_query($queryGetHostState, $this->_dbh);
 
-        if (false === $result) {
-            return array();
+        try {
+            $stmt = $this->_dbh->query($queryGetHostState);
+        } catch (PDOException $e) {
+            throw new BackendException(l('errorGettingHostState', array('BACKENDID' => $this->_backendId, 'ERROR' => $e->getMessage())));
         }
+
         $listStates = array();
-        while ($row = mysql_fetch_array($result, MYSQL_ASSOC)) {
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             /* Modifiy for downtime */
             if (false === isset($row['downtime_start']) || '' === $row['downtime_start']) {
                 unset($row['downtime_start']);
@@ -290,7 +293,6 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             }
             $listStates[$row['name']] = $row;
         }
-        mysql_free_result($result);
         return $listStates;
     }
 
@@ -334,12 +336,15 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             $queryGetServiceState .= ' AND h.instance_id = ' . $this->_instanceId;
         }
         $queryGetServiceState = sprintf($queryGetServiceState, $this->parseFilter($objects, $filters));
-        $result = mysql_query($queryGetServiceState, $this->_dbh);
-        if (false === $result) {
-            return array();
+
+        try {
+            $stmt = $this->_dbh->query($queryGetServiceState);
+        } catch (PDOException $e) {
+            throw new BackendException(l('errorGettingServiceState', array('BACKENDID' => $this->_backendId, 'ERROR' => $e->getMessage())));
         }
+
         $listStates = array();
-        while ($row = mysql_fetch_array($result, MYSQL_ASSOC)) {
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             /* Define key */
             $specific = false;
             $key = $row['name'];
@@ -403,7 +408,6 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
                 $listStates[$key][] = $row;
             }
         }
-        mysql_free_result($result);
         return $listStates;
     }
 
@@ -434,14 +438,17 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
         if ($this->_instanceId != 0) {
             $queryCount .= ' AND h.instance_id = ' . $this->_instanceId;
         }
-	$queryCount .= ' GROUP BY h.name';
+        $queryCount .= ' GROUP BY h.name';
         $queryCount = sprintf($queryCount, $this->parseFilter($objects, $filters));
-        $result = mysql_query($queryCount);
-        if (false === $result) {
-            return array();
+        
+        try {
+            $stmt = $this->_dbh->query($queryCount);
+        } catch (PDOException $e) {
+            throw new BackendException(l('errorGettingHostStateCount', array('BACKENDID' => $this->_backendId, 'ERROR' => $e->getMessage())));
         }
+
         $counts = array();
-        while ($row = mysql_fetch_array($result, MYSQL_ASSOC)) {
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $counts[$row['name']] = array(
                 'details' => array('alias' => $row['alias']),
                 'counts' => array(
@@ -470,7 +477,6 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
                 )
             );
         }
-        mysql_free_result($result);
         return $counts;
     }
 
@@ -503,14 +509,17 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
         if ($this->_instanceId != 0) {
             $queryCount .= ' AND h.instance_id = ' . $this->_instanceId;
         }
-	$queryCount .= ' GROUP BY hg.name';
+        $queryCount .= ' GROUP BY hg.name';
         $queryCount = sprintf($queryCount, $this->parseFilter($objects, $filters, 'hg'));
-        $result = mysql_query($queryCount);
-        if (false === $result) {
-            return array();
+        
+        try {
+            $stmt = $this->_dbh->query($queryCount);
+        } catch (PDOException $e) {
+            throw new BackendException(l('errorGettinggetHostgroupStateCounts', array('BACKENDID' => $this->_backendId, 'ERROR' => $e->getMessage())));
         }
+
         $counts = array();
-        while ($row = mysql_fetch_array($result, MYSQL_ASSOC)) {
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $counts[$row['name']] = array(
                 'details' => array('alias' => $row['alias']),
                 'counts' => array(
@@ -534,12 +543,11 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
                 )
             );
         }
-        mysql_free_result($result);
-        if($options & 2) {
+        if ($options & 2) {
             return $counts;
         }
 
-        if($options & 1) {
+        if ($options & 1) {
             $stateAttr = 'IF((s.state_type = 0), s.last_hard_state, s.state)';
         } else {
             $stateAttr = 's.state';
@@ -569,14 +577,16 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
         if ($this->_instanceId != 0) {
             $queryCount .= ' AND h.instance_id = ' . $this->_instanceId;
         }
-	$queryCount .= ' GROUP BY hg.name';
+        $queryCount .= ' GROUP BY hg.name';
         $queryCount = sprintf($queryCount, $this->parseFilter($objects, $filters, 'hg'));
-        $result = mysql_query($queryCount);
-        if (false === $result) {
-            return $counts;
+        
+        try {
+            $stmt = $this->_dbh->query($queryCount);
+        } catch (PDOException $e) {
+            throw new BackendException(l('errorGettinggetHostgroupStateCounts', array('BACKENDID' => $this->_backendId, 'ERROR' => $e->getMessage())));
         }
 
-        while ($row = mysql_fetch_array($result, MYSQL_ASSOC)) {
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $counts[$row['name']]['counts']['PENDING']['normal']    = intval($row['pending']);
             $counts[$row['name']]['counts']['OK']['normal']         = intval($row['ok']);
             $counts[$row['name']]['counts']['OK']['downtime']       = intval($row['ok_downtime']);
@@ -590,7 +600,6 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             $counts[$row['name']]['counts']['UNKNOWN']['ack']       = intval($row['unknown_ack']);
             $counts[$row['name']]['counts']['UNKNOWN']['downtime']  = intval($row['unknown_downtime']);
         }
-        mysql_free_result($result);
         return $counts;
     }
 
@@ -621,13 +630,15 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
                 AND s.enabled = 1
                 AND (%s) GROUP BY sg.name';
         $queryCount = sprintf($queryCount, $this->parseFilter($objects, $filters, 'sg'));
-        $result = mysql_query($queryCount);
-        if (false === $result) {
-            return array();
+
+        try {
+            $stmt = $this->_dbh->query($queryCount);
+        } catch (PDOException $e) {
+            throw new BackendException(l('errorGettingServicegroupStateCounts', array('BACKENDID' => $this->_backendId, 'ERROR' => $e->getMessage())));
         }
 
         $counts = array();
-        while ($row = mysql_fetch_array($result, MYSQL_ASSOC)) {
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $counts[$row['name']] = array(
                 'details' => array('alias' => $row['alias']),
                 'counts' => array(
@@ -656,7 +667,6 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
                 )
             );
         }
-        mysql_free_result($result);
 
         return $counts;
     }
@@ -669,15 +679,17 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
         if ($this->_instanceId != 0) {
             $queryNoParents .= ' AND instance_id = ' . $this->_instanceId;
         }
-        $result = mysql_query($queryNoParents);
-        if (false === $result) {
-            return array();
+        
+        try {
+            $stmt = $this->_dbh->query($queryNoParents);
+        } catch (PDOException $e) {
+            throw new BackendException(l('errorGettingHostNamesWithNoParent', array('BACKENDID' => $this->_backendId, 'ERROR' => $e->getMessage())));
         }
+
         $noParents = array();
-        while ($row =  mysql_fetch_array($result, MYSQL_ASSOC)) {
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $noParents[] = $row['name'];
         }
-        mysql_free_result($result);
         return $noParents;
     }
 
@@ -688,20 +700,22 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
                 AND h.enabled = 1
                 AND hp.parent_id IN (SELECT host_id
                     FROM hosts
-                    WHERE name = "%s")';
+                    WHERE name = %s)';
         if ($this->_instanceId != 0) {
             $queryGetChilds .= ' AND h.instance_id = ' . $this->_instanceId;
         }
-        $queryGetChilds = sprintf($queryGetChilds, $hostname);
-        $result = mysql_query($queryGetChilds);
-        if (false === $result) {
-            return array();
+        $queryGetChilds = sprintf($queryGetChilds, $this->_dbh->quote($hostname));
+        
+        try {
+            $stmt = $this->_dbh->query($queryGetChilds);
+        } catch (PDOException $e) {
+            throw new BackendException(l('errorGettingDirectChildNamesByHostName', array('BACKENDID' => $this->_backendId, 'ERROR' => $e->getMessage())));
         }
+
         $childs = array();
-        while ($row =  mysql_fetch_array($result, MYSQL_ASSOC)) {
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $childs[] = $row['name'];
         }
-        mysql_free_result($result);
         return $childs;
     }
 
@@ -716,16 +730,18 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
         if ($this->_instanceId != 0) {
             $queryGetParents .= ' AND h.instance_id = ' . $this->_instanceId;
         }
-        $queryGetParents = sprintf($queryGetParents, $hostname);
-        $result = mysql_query($queryGetParentss);
-        if (false === $result) {
-            return array();
+        $queryGetParents = sprintf($queryGetParents, $this->_dbh->quote($hostname));
+        
+        try {
+            $stmt = $this->_dbh->query($queryGetParents);
+        } catch (PDOException $e) {
+            throw new BackendException(l('errorGettingDirectParentNamesByHostName', array('BACKENDID' => $this->_backendId, 'ERROR' => $e->getMessage())));
         }
+
         $parents = array();
-        while ($row =  mysql_fetch_array($result, MYSQL_ASSOC)) {
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $parents[] = $row['name'];
         }
-        mysql_free_result($result);
         return $parents;
     }
 
@@ -736,12 +752,18 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
         $queryAck = 'SELECT acknowledged
             FROM hosts
             WHERE enabled = 1 AND host_id = ' . $hostId;
-        $result = mysql_query($queryAck, $this->_dbh);
-        if (false === $result) {
+            
+        try {
+            $stmt = $this->_dbh->query($queryAck);
+        } catch (PDOException $e) {
+            throw new BackendException(l('errorGettingHostAck', array('BACKENDID' => $this->_backendId, 'ERROR' => $e->getMessage())));
+        }    
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (false === $row) {
             return 0;
         }
-        $row = mysql_fetch_array($result, MYSQL_ASSOC);
-        mysql_free_result($result);
+        
         $return = 0;
         if (isset($row['acknowledged']) && $row['acknowledged'] == '1') {
             $return = 1;
@@ -781,7 +803,7 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
                     $key = $tableAlias . '.name';
                     $val = $object[0]->getName();
                 }
-                $objFilters[] = $key . ' ' . $op . ' "' . $val . '"';
+                $objFilters[] = $key . ' ' . $op . ' ' . $this->_dbh->quote($val);
             }
 
 
@@ -800,16 +822,18 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
         if (false === extension_loaded('mysql')) {
             throw new BackendConnectionProblem(l('mysqlNotSupported', array('BACKENDID', $this->_backendId)));
         }
-        $fullhost = $this->_dbhost;
+        $fullhost = 'host=' . $this->_dbhost;
         if ('' != $this->_dbport) {
-            $fullhost .= ':' . $this->_dbport;
+            $fullhost .= ';port=' . $this->_dbport;
         }
-        $this->_dbh = mysql_connect($fullhost, $this->_dbuser, $this->_dbpass);
-        if (false === $this->_dbh) {
-            throw new BackendConnectionProblem(l('errorConnectingMySQL', Array('BACKENDID' => $this->backendId,'MYSQLERR' => mysql_error())));
+        if ('' != $this->_dbname) {
+            $fullhost .= ';dbname=' . $this->_dbname;
         }
-        if (false === mysql_select_db($this->_dbname, $this->_dbh)) {
-            throw new BackendConnectionProblem(l('errorSelectingDb', Array('BACKENDID' => $this->backendId,'MYSQLERR' => mysql_error($this->_dbh))));
+        try {
+            $this->_dbh = new PDO('mysql:' . $fullhost, $this->_dbuser, $this->_dbpass, array(PDO::ATTR_PERSISTENT => false));
+            $this->_dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        } catch (PDOException $e) {
+            throw new BackendConnectionProblem(l('errorConnectingMySQL', Array('BACKENDID' => $this->backendId,'MYSQLERR' => $e->getMessage())));
         }
     }
 
@@ -820,20 +844,19 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
      * @throws BackendException
      */
     private function loadInstanceId() {
-        $queryGetInstanceId = 'SELECT instance_id
-            FROM instances
-            WHERE name = "%s"';
-        $queryGetInstanceId = sprintf($queryGetInstanceId, mysql_real_escape_string($this->_dbinstancename, $this->_dbh));
-
-        $res = mysql_query($queryGetInstanceId, $this->_dbh);
-        if (false === $res) {
-            throw new BackendException('errorLoadingInstanceId', array('BACKENDID' => $this->_backendId, 'ERROR' => mysql_error($this->_dbh)));
+        try {
+            $stmt = $this->_dbh->prepare("SELECT instance_id
+                            FROM instances
+                            WHERE name = :name");
+            $stmt->bindParam(':name', $this->_dbinstancename, PDO::PARAM_STR);
+            $stmt->execute();
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        } catch (PDOException $e ) {
+            throw new BackendException('errorLoadingInstanceId', array('BACKENDID' => $this->_backendId, 'ERROR' => $e->getMessage()));
         }
-            $row = mysql_fetch_array($res, MYSQL_ASSOC);
+
         if (isset($row['instance_id'])) {
             $this->_instanceId = $row['instance_id'];
         }
-
-        mysql_free_result($res);
     }
 }
