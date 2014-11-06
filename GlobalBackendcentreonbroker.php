@@ -325,13 +325,15 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             FROM services s
             LEFT JOIN hosts h
                 ON s.host_id=h.host_id
-            LEFT JOIN (
-                select max(d.downtime_id) as downtime_id, d.start_time, d.end_time, d.service_id, d.author, d.comment_data
-                from downtimes d where d.start_time < UNIX_TIMESTAMP() AND d.end_time > UNIX_TIMESTAMP() AND d.deletion_time IS NULL 
-                group by d.service_id ) as d 
-                on d.service_id=s.service_id
-            WHERE s.host_id = h.host_id AND s.enabled = 1 AND h.enabled = 1
-                AND (%s)';
+            LEFT JOIN downtimes d 
+                ON (d.host_id = h.host_id AND d.service_id=s.service_id AND d.start_time < UNIX_TIMESTAMP() AND d.end_time > UNIX_TIMESTAMP() AND d.deletion_time IS NULL)
+            WHERE (d.downtime_id IS NULL OR d.downtime_id IN (
+                            SELECT MAX(d.downtime_id) as downtime_id
+                                FROM downtimes d where d.host_id = h.host_id AND d.service_id = s.service_id AND d.start_time < UNIX_TIMESTAMP() AND d.end_time > UNIX_TIMESTAMP() AND d.deletion_time IS NULL
+                            ) 
+                  )
+               AND s.host_id = h.host_id AND s.enabled = 1 AND h.enabled = 1
+               AND (%s)';
         if ($this->_instanceId != 0) {
             $queryGetServiceState .= ' AND h.instance_id = ' . $this->_instanceId;
         }
@@ -830,7 +832,8 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             $fullhost .= ';dbname=' . $this->_dbname;
         }
         try {
-            $this->_dbh = new PDO('mysql:' . $fullhost, $this->_dbuser, $this->_dbpass, array(PDO::ATTR_PERSISTENT => false));
+            $this->_dbh = new PDO('mysql:' . $fullhost, $this->_dbuser, $this->_dbpass, array(PDO::ATTR_PERSISTENT => false, 
+                                                                                              PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8"));
             $this->_dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         } catch (PDOException $e) {
             throw new BackendConnectionProblem(l('errorConnectingMySQL', Array('BACKENDID' => $this->backendId,'MYSQLERR' => $e->getMessage())));
