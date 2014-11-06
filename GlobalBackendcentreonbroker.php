@@ -232,11 +232,14 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             d.author as downtime_author,
             d.comment_data as downtime_data
             FROM hosts h
-            LEFT JOIN (
-                select max(d.downtime_id) as downtime_id, d.start_time, d.end_time, d.host_id, d.author, d.comment_data
-                from downtimes d where d.start_time < UNIX_TIMESTAMP() AND d.end_time > UNIX_TIMESTAMP() AND d.deletion_time IS NULL AND d.service_id IS NULL group by d.host_id ) as d 
-                on d.host_id=h.host_id
-            WHERE h.enabled = 1 AND (%s)';
+            LEFT JOIN downtimes d 
+                ON (d.host_id = h.host_id AND d.service_id IS NULL AND d.start_time < UNIX_TIMESTAMP() AND d.end_time > UNIX_TIMESTAMP() AND d.deletion_time IS NULL)
+            WHERE (d.downtime_id IS NULL OR d.downtime_id IN (
+                            SELECT MAX(d.downtime_id) as downtime_id
+                                FROM downtimes d where d.host_id = h.host_id AND d.service_id IS NULL AND d.start_time < UNIX_TIMESTAMP() AND d.end_time > UNIX_TIMESTAMP() AND d.deletion_time IS NULL
+                            ) 
+                  )
+                  AND h.enabled = 1 AND (%s)';
         if ($this->_instanceId != 0) {
             $queryGetHostState .= ' AND h.instance_id = ' . $this->_instanceId;
         }
