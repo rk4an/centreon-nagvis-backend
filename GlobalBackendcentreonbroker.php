@@ -25,9 +25,9 @@
 
 /**
  * @author  Maximilien Bersoult <mbersoult@merethis.com>
+ * @author  Mathieu Parent <math.parent@gmail.com>
  */
 class GlobalBackendcentreonbroker implements GlobalBackendInterface {
-    private $_CORE = null;
     private $_backendId = 0;
     private $_dbname;
     private $_dbuser;
@@ -86,11 +86,9 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
      * Constructor
      *
      * @author Maximilien Bersoult <mbersoult@merethis.com>
-     * @param GlobalCore $CORE The instance of NagVis
      * @param int $backendId The backend ID
      */
-    public function __construct($CORE, $backendId) {
-        $this->_CORE = $CORE;
+    public function __construct($backendId) {
         $this->_backendId = $backendId;
 
         $this->_dbname = cfg('backend_'.$backendId, 'dbname');
@@ -136,7 +134,7 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
                 }
                 break;
             case 'service':
-                $queryGetObject = 'SELECT s.host_id, s.service_id, h.name as name1, s.description as name2
+                $queryGetObject = 'SELECT s.host_id, s.service_id, s.description as name1, s.description as name2
                     FROM services s, hosts h
                     WHERE h.enabled =1
                         AND s.enabled = 1
@@ -251,16 +249,17 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             throw new BackendException(l('errorGettingHostState', array('BACKENDID' => $this->_backendId, 'ERROR' => $e->getMessage())));
         }
 
-        $listStates = array();
+        $arrReturn = array();
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             /* Modifiy for downtime */
             if (false === isset($row['downtime_start']) || '' === $row['downtime_start']) {
-                unset($row['downtime_start']);
-                unset($row['downtime_end']);
-                unset($row['downtime_author']);
-                unset($row['downtime_data']);
+                $row['downtime_start'] = null;
+                $row['downtime_end'] = null;
+                $row['downtime_author'] = null;
+                $row['downtime_data'] = null;
+                $in_downtime = false;
             } else {
-                $row['in_downtime'] = 1;
+                $in_downtime = true;
             }
             /* Modify state */
             /* Only Hard */
@@ -271,35 +270,66 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             }
             /* Unchecked state */
             if ($row['has_been_checked'] == '0' || $row['current_state'] == '') {
-                $row['state'] = 'UNCHECKED';
-                $row['output'] = l('hostIsPending', Array('HOST' => $row['name']));
+                $arrReturn[$e[18]] = Array(
+                    UNCHECKED,
+                    l('hostIsPending', Array('HOST' => $row['name'])),
+                    null,
+                    null,
+                    null,
+                );
+                continue;
             } else {
                 switch ($row['current_state']) {
                     case '0':
-                        $row['state'] = 'UP';
-                        unset($row['problem_has_been_acknowledged']);
+                        $state = UP;
                         break;
                     case '1':
-                        $row['state'] = 'DOWN';
+                        $state = DOWN;
                         break;
                     case '2':
-                        $row['state'] = 'UNREACHABLE';
+                        $state = UNREACHABLE;
                         break;
                     case '3':
-                        $row['state'] = 'UNKNOWN';
+                        $state = UNKNOWN;
                         break;
                     default:
-                        $row['state'] = 'UNKNOWN';
+                        $state = UNKNOWN;
                         $row['output'] = 'GlobalBackendcentreonbroker::getHostState: Undefined state!';
                         break;
                 }
             }
-            $listStates[$row['name']] = $row;
+            $acknowledged = $state != UP && $row['problem_has_been_acknowledged'];
+            $arrReturn[$row['name']] = Array(
+                $state,
+                $row['output'],  // output
+                $row['problem_has_been_acknowledged'],
+                $in_downtime,
+                0, // staleness
+                $row['state_type'],  // state type
+                $row['current_check_attempt'],  // current attempt
+                $row['max_check_attempts'], // max attempts
+                $row['last_check'],  // last check
+                $row['next_check'],  // next check
+                $row['last_hard_state_change'], // last hard state change
+                $row['last_state_change'], // last state change
+                $row['perfdata'], // perfdata
+                $row['name'],  // display name
+                $row['alias'], // alias
+                $row['address'],  // address
+                $row['notes'],  // notes
+                $row['check_command'], // check command
+                Array(), // Custom vars
+                $row['downtime_author'], // downtime author
+                $row['downtime_data'], // downtime comment
+                $row['downtime_start'], // downtime start
+                $row['downtime_end'], // downtime end
+            );
         }
-        return $listStates;
+        return $arrReturn;
     }
 
     public function getServiceState($objects, $options, $filters) {
+        //error_log('Filters: '.print_r($filters, true)."\n");
         $queryGetServiceState = 'SELECT
             h.host_id,
             h.name,
@@ -341,6 +371,7 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             $queryGetServiceState .= ' AND h.instance_id = ' . $this->_instanceId;
         }
         $queryGetServiceState = sprintf($queryGetServiceState, $this->parseFilter($objects, $filters));
+        //error_log('Query: '.$queryGetServiceState."\n");
 
         try {
             $stmt = $this->_dbh->query($queryGetServiceState);
@@ -353,18 +384,22 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             /* Define key */
             $specific = false;
             $key = $row['name'];
+            if ( $row['service_description'] == 'CRAIOL') {
+              error_log(print_r($objects, true)."\n");
+            }
             if (isset($objects[$key . '~~' . $row['service_description']])) {
                 $key = $key . '~~' . $row['service_description'];
                 $specific = true;
             }
             /* Modifiy for downtime */
             if (false === isset($row['downtime_start']) || '' === $row['downtime_start']) {
-                unset($row['downtime_start']);
-                unset($row['downtime_end']);
-                unset($row['downtime_author']);
-                unset($row['downtime_data']);
+                $row['downtime_start'] = null;
+                $row['downtime_end'] = null;
+                $row['downtime_author'] = null;
+                $row['downtime_data'] = null;
+                $in_downtime = false;
             } else {
-                $row['in_downtime'] = 1;
+                $in_downtime = true;
             }
             /* Modify state */
             /* Only Hard */
@@ -381,42 +416,70 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
 
             /* Unchecked state */
             if ($row['has_been_checked'] == '0' || $row['current_state'] == '') {
-                $row['state'] = 'PENDING';
-                $row['output'] = l('serviceNotChecked', Array('SERVICE' => $row['service_description']));
+                $svc = array_fill(0, EXT_STATE_SIZE, null);
+                $svc[DESCRIPTION]  = $e[0];
+                $svc[DISPLAY_NAME] = $e[1];
+                $svc[STATE]  = PENDING;
+                $svc[OUTPUT] = l('serviceNotChecked', Array('SERVICE' => $row['service_description']));
             } else {
                 switch ($row['current_state']) {
                     case '0':
-                        $row['state'] = 'OK';
-                        unset($row['problem_has_been_acknowledged']);
+                        $state = OK;
                         break;
                     case '1':
-                        $row['state'] = 'WARNING';
+                        $state = WARNING;
                         break;
                     case '2':
-                        $row['state'] = 'CRITICAL';
+                        $state = CRITICAL;
                         break;
                     case '3':
-                        $row['state'] = 'UNKNOWN';
+                        $state = UNKNOWN;
                         break;
                     default:
-                        $row['state'] = 'UNKNOWN';
+                        $state = UNKNOWN;
                         $row['output'] = 'GlobalBackendcentreonbroker::getHostState: Undefined state!';
                         break;
                 }
+                $svc = array(
+                    $state,
+                    $row['output'],  // output
+                    $row['problem_has_been_acknowledged'],
+                    $in_downtime,
+                    0, // staleness
+                    $row['state_type'],  // state type
+                    $row['current_check_attempt'],  // current attempt
+                    $row['max_check_attempts'], // max attempts
+                    $row['last_check'],  // last check
+                    $row['next_check'],  // next check
+                    $row['last_hard_state_change'], // last hard state change
+                    $row['last_state_change'], // last state change
+                    $row['perfdata'], // perfdata
+                    $row['name'],  // display name
+                    $row['alias'], // alias
+                    $row['address'],  // address
+                    $row['notes'],  // notes
+                    $row['check_command'], // check command
+                    Array(), // Custom vars
+                    $row['downtime_author'], // downtime author
+                    $row['downtime_data'], // downtime comment
+                    $row['downtime_start'], // downtime start
+                    $row['downtime_end'], // downtime end
+                    $row['service_description'], // descr
+                );
             }
             if ($specific) {
-                $listStates[$key] = $row;
+                $listStates[$key] = $svc;
             } else {
                 if (!isset($listStates[$key])) {
                     $listStates[$key] = array();
                 }
-                $listStates[$key][] = $row;
+                $listStates[$key][] = $svc;
             }
         }
         return $listStates;
     }
 
-    public function getHostStateCounts($objects, $options, $filters) {
+    public function getHostMemberCounts($objects, $options, $filters) {
         if($options & 1) {
             $stateAttr = 'IF((s.state_type = 0), s.last_hard_state, s.state)';
         } else {
@@ -455,26 +518,26 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
         $counts = array();
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $counts[$row['name']] = array(
-                'details' => array('alias' => $row['alias']),
+                //'details' => array(ALIAS => $row['alias']),
                 'counts' => array(
-                    'UNCHECKED' => array(
+                    PENDING => array(
                         'normal' => intval($row['pending']),
                     ),
-                    'OK' => array(
+                    OK => array(
                         'normal'   => intval($row['ok']),
                         'downtime' => intval($row['ok_downtime']),
                     ),
-                    'WARNING' => array(
+                    WARNING => array(
                         'normal'   => intval($row['warning']),
                         'ack'      => intval($row['warning_ack']),
                         'downtime' => intval($row['warning_downtime']),
                     ),
-                    'CRITICAL' => array(
+                    CRITICAL => array(
                         'normal'   => intval($row['critical']),
                         'ack'      => intval($row['critical_ack']),
                         'downtime' => intval($row['critical_downtime']),
                     ),
-                    'UNKNOWN' => array(
+                    UNKNOWN => array(
                         'normal'   => intval($row['unknown']),
                         'ack'      => intval($row['unknown_ack']),
                         'downtime' => intval($row['unknown_downtime']),
@@ -526,21 +589,21 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
         $counts = array();
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $counts[$row['name']] = array(
-                'details' => array('alias' => $row['alias']),
+                'details' => array(ALIAS => $row['alias']),
                 'counts' => array(
-                    'UNCHECKED' => array(
+                    UNCHECKED => array(
                         'normal'    => intval($row['unchecked']),
                     ),
-                    'UP' => array(
+                    UP => array(
                         'normal'    => intval($row['up']),
                         'downtime'  => intval($row['up_downtime']),
                     ),
-                    'DOWN' => array(
+                    DOWN => array(
                         'normal'    => intval($row['down']),
                         'ack'       => intval($row['down_ack']),
                         'downtime'  => intval($row['down_downtime']),
                     ),
-                    'UNREACHABLE' => array(
+                    UNREACHABLE => array(
                         'normal'    => intval($row['unreachable']),
                         'ack'       => intval($row['unreachable_ack']),
                         'downtime'  => intval($row['unreachable_downtime']),
@@ -592,18 +655,18 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
         }
 
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            $counts[$row['name']]['counts']['PENDING']['normal']    = intval($row['pending']);
-            $counts[$row['name']]['counts']['OK']['normal']         = intval($row['ok']);
-            $counts[$row['name']]['counts']['OK']['downtime']       = intval($row['ok_downtime']);
-            $counts[$row['name']]['counts']['WARNING']['normal']    = intval($row['warning']);
-            $counts[$row['name']]['counts']['WARNING']['ack']       = intval($row['warning_ack']);
-            $counts[$row['name']]['counts']['WARNING']['downtime']  = intval($row['warning_downtime']);
-            $counts[$row['name']]['counts']['CRITICAL']['normal']   = intval($row['critical']);
-            $counts[$row['name']]['counts']['CRITICAL']['ack']      = intval($row['critical_ack']);
-            $counts[$row['name']]['counts']['CRITICAL']['downtime'] = intval($row['critical_downtime']);
-            $counts[$row['name']]['counts']['UNKNOWN']['normal']    = intval($row['unknown']);
-            $counts[$row['name']]['counts']['UNKNOWN']['ack']       = intval($row['unknown_ack']);
-            $counts[$row['name']]['counts']['UNKNOWN']['downtime']  = intval($row['unknown_downtime']);
+            $counts[$row['name']]['counts'][PENDING]['normal']    = intval($row['pending']);
+            $counts[$row['name']]['counts'][OK]['normal']         = intval($row['ok']);
+            $counts[$row['name']]['counts'][OK]['downtime']       = intval($row['ok_downtime']);
+            $counts[$row['name']]['counts'][WARNING]['normal']    = intval($row['warning']);
+            $counts[$row['name']]['counts'][WARNING]['ack']       = intval($row['warning_ack']);
+            $counts[$row['name']]['counts'][WARNING]['downtime']  = intval($row['warning_downtime']);
+            $counts[$row['name']]['counts'][CRITICAL]['normal']   = intval($row['critical']);
+            $counts[$row['name']]['counts'][CRITICAL]['ack']      = intval($row['critical_ack']);
+            $counts[$row['name']]['counts'][CRITICAL]['downtime'] = intval($row['critical_downtime']);
+            $counts[$row['name']]['counts'][UNKNOWN]['normal']    = intval($row['unknown']);
+            $counts[$row['name']]['counts'][UNKNOWN]['ack']       = intval($row['unknown_ack']);
+            $counts[$row['name']]['counts'][UNKNOWN]['downtime']  = intval($row['unknown_downtime']);
         }
         return $counts;
     }
@@ -645,26 +708,26 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
         $counts = array();
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $counts[$row['name']] = array(
-                'details' => array('alias' => $row['alias']),
+                'details' => array(ALIAS => $row['alias']),
                 'counts' => array(
-                    'PENDING' => array(
+                    PENDING => array(
                         'normal'   => intval($row['pending']),
                     ),
-                    'OK' => array(
+                    OK => array(
                         'normal'   => intval($row['ok']),
                         'downtime' => intval($row['ok_downtime']),
                     ),
-                    'WARNING' => array(
+                    WARNING => array(
                         'normal'   => intval($row['warning']),
                         'ack'      => intval($row['warning_ack']),
                         'downtime' => intval($row['warning_downtime']),
                     ),
-                    'CRITICAL' => array(
+                    CRITICAL => array(
                         'normal'   => intval($row['critical']),
                         'ack'      => intval($row['critical_ack']),
                         'downtime' => intval($row['critical_downtime']),
                     ),
-                    'UNKNOWN' => array(
+                    UNKNOWN => array(
                         'normal'   => intval($row['unknown']),
                         'ack'      => intval($row['unknown_ack']),
                         'downtime' => intval($row['unknown_downtime']),
