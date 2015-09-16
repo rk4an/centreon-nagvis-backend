@@ -222,6 +222,7 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             h.check_attempt as current_check_attempt,
             h.max_check_attempts,
             h.last_state_change,
+            h.last_hard_state,
             h.last_hard_state_change,
             h.checked as has_been_checked,
             h.state as current_state,
