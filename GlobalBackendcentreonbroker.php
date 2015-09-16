@@ -134,7 +134,7 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
                 }
                 break;
             case 'service':
-                $queryGetObject = 'SELECT s.host_id, s.service_id, s.description as name1, s.description as name2
+                $queryGetObject = 'SELECT s.host_id, s.service_id, h.name as name1, s.description as name2
                     FROM services s, hosts h
                     WHERE h.enabled =1
                         AND s.enabled = 1
@@ -329,7 +329,6 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
     }
 
     public function getServiceState($objects, $options, $filters) {
-        //error_log('Filters: '.print_r($filters, true)."\n");
         $queryGetServiceState = 'SELECT
             h.host_id,
             h.name,
@@ -371,7 +370,6 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             $queryGetServiceState .= ' AND h.instance_id = ' . $this->_instanceId;
         }
         $queryGetServiceState = sprintf($queryGetServiceState, $this->parseFilter($objects, $filters));
-        //error_log('Query: '.$queryGetServiceState."\n");
 
         try {
             $stmt = $this->_dbh->query($queryGetServiceState);
@@ -384,9 +382,6 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             /* Define key */
             $specific = false;
             $key = $row['name'];
-            if ( $row['service_description'] == 'CRAIOL') {
-              error_log(print_r($objects, true)."\n");
-            }
             if (isset($objects[$key . '~~' . $row['service_description']])) {
                 $key = $key . '~~' . $row['service_description'];
                 $specific = true;
