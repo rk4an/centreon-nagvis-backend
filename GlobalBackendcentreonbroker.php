@@ -904,7 +904,7 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
                                                                                               PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8"));
             $this->_dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         } catch (PDOException $e) {
-            throw new BackendConnectionProblem(l('errorConnectingMySQL', Array('BACKENDID' => $this->backendId,'MYSQLERR' => $e->getMessage())));
+            throw new BackendConnectionProblem(l('errorConnectingMySQL', Array('BACKENDID' => $this->_backendId,'MYSQLERR' => $e->getMessage())));
         }
     }
 
