@@ -676,7 +676,7 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
         }
         $queryCount = 'SELECT
             sg.name,
-            sg.alias,
+            sg.name as alias,
             SUM(IF(s.checked=0,1,0)) AS pending,
             SUM(IF(('.$stateAttr.'=0 AND s.checked!=0 AND s.scheduled_downtime_depth=0),1,0)) AS ok,
             SUM(IF(('.$stateAttr.'=0 AND s.checked!=0 AND s.scheduled_downtime_depth!=0),1,0)) AS ok_downtime,
