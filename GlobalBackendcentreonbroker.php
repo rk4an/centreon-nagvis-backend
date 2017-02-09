@@ -412,7 +412,7 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             unset($row['host_id']);
 
             /* Unchecked state */
-            if ($row['has_been_checked'] == '0' || $row['current_state'] == '') {
+            if (isset($e) && $row['has_been_checked'] == '0' || $row['current_state'] == '') {
                 $svc = array_fill(0, EXT_STATE_SIZE, null);
                 $svc[DESCRIPTION]  = $e[0];
                 $svc[DISPLAY_NAME] = $e[1];
