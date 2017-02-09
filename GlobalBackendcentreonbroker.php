@@ -925,4 +925,8 @@ class GlobalBackendcentreonbroker implements GlobalBackendInterface {
             $this->_instanceId = $row['instance_id'];
         }
     }
+    
+    public function getProgramStart() {
+      return -1;
+     }
 }
